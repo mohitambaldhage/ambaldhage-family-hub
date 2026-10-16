@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --family-primary: #3b82f6;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900 min-h-screen transition-colors duration-200;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  .dark body, body.dark {
+    @apply bg-slate-950 text-slate-100;
+  }
+}
+
+/* Custom scrollbar for sticky notes & lists */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* High contrast / senior friendly mode utility */
+.senior-mode {
+  font-size: 1.15rem;
+}
+.senior-mode .text-sm {
+  font-size: 1rem !important;
+}
+.senior-mode .text-xs {
+  font-size: 0.875rem !important;
+}
+.senior-mode button {
+  min-height: 48px;
+}
