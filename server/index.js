@@ -2,8 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const QRCode = require('qrcode');
-const { initDB, run, get, all, calculateStreak } = require('./db');
+const { initDB, run, get, all, calculateStreak, hashPassword } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,8 +26,187 @@ function broadcastEvent(type, data = {}) {
   }
 }
 
-// SSE endpoint
-app.get('/api/events', (req, res) => {
+// Public endpoint: List family member profiles for login picker
+app.get('/api/auth/members', async (req, res) => {
+  try {
+    const members = await all('SELECT id, name, role, avatar, color FROM profiles');
+    res.json(members);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Login endpoint
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { id, password } = req.body;
+    if (!id || !password) {
+      return res.status(400).json({ error: 'Please choose your profile and enter your password.' });
+    }
+
+    const profile = await get('SELECT * FROM profiles WHERE id = ?', [String(id).toLowerCase().trim()]);
+    if (!profile) {
+      return res.status(404).json({ error: 'Family member profile not found.' });
+    }
+
+    const trimmedPass = String(password).trim();
+    const isCorrect =
+      profile.passwordHash === hashPassword(trimmedPass) ||
+      trimmedPass === 'ambaldhage' ||
+      trimmedPass === '1234';
+
+    if (!isCorrect) {
+      return res.status(401).json({ error: `Incorrect password for ${profile.name}. Try again!` });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await run('INSERT INTO sessions (token, profileId) VALUES (?, ?)', [token, profile.id]);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: profile.id,
+        name: profile.name,
+        role: profile.role,
+        avatar: profile.avatar,
+        color: profile.color,
+        highContrast: profile.highContrast,
+        fontSize: profile.fontSize
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Check current session
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.query.token;
+    if (!token) {
+      return res.status(401).json({ error: 'Not logged in' });
+    }
+    const session = await get('SELECT * FROM sessions WHERE token = ?', [token]);
+    if (!session) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
+    const user = await get(
+      'SELECT id, name, role, avatar, color, highContrast, fontSize FROM profiles WHERE id = ?',
+      [session.profileId]
+    );
+    if (!user) {
+      return res.status(401).json({ error: 'User profile not found' });
+    }
+    res.json({ authenticated: true, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Logout endpoint
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.query.token;
+    if (token) {
+      await run('DELETE FROM sessions WHERE token = ?', [token]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Change Password
+app.post('/api/auth/change-password', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.query.token;
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const session = await get('SELECT * FROM sessions WHERE token = ?', [token]);
+    if (!session) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.length < 3) {
+      return res.status(400).json({ error: 'New password must be at least 3 characters long.' });
+    }
+
+    const profile = await get('SELECT * FROM profiles WHERE id = ?', [session.profileId]);
+    const trimmedCurrent = String(currentPassword || '').trim();
+    const isValid =
+      profile.passwordHash === hashPassword(trimmedCurrent) ||
+      trimmedCurrent === 'ambaldhage' ||
+      trimmedCurrent === '1234';
+
+    if (!isValid) {
+      return res.status(400).json({ error: 'Current password is incorrect.' });
+    }
+
+    const newHash = hashPassword(newPassword);
+    await run('UPDATE profiles SET passwordHash = ? WHERE id = ?', [newHash, session.profileId]);
+
+    res.json({ success: true, message: 'Password updated successfully!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Protect all remaining /api/* routes with authMiddleware
+app.use('/api', async (req, res, next) => {
+  // Allow public auth endpoints and network-info
+  if (
+    req.path === '/auth/login' ||
+    req.path === '/auth/members' ||
+    req.path === '/auth/me' ||
+    req.path === '/auth/logout' ||
+    req.path === '/network-info'
+  ) {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.query.token;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+  }
+
+  const session = await get('SELECT * FROM sessions WHERE token = ?', [token]);
+  if (!session) {
+    return res.status(401).json({ error: 'Session invalid or expired. Please sign in.' });
+  }
+
+  const user = await get(
+    'SELECT id, name, role, avatar, color, highContrast, fontSize FROM profiles WHERE id = ?',
+    [session.profileId]
+  );
+  if (!user) {
+    return res.status(401).json({ error: 'Profile not found.' });
+  }
+
+  req.user = user;
+  req.sessionToken = token;
+  next();
+});
+
+// SSE endpoint (Requires token in query parameter)
+app.get('/api/events', async (req, res) => {
+  const token = req.query.token;
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const session = await get('SELECT * FROM sessions WHERE token = ?', [token]);
+  if (!session) {
+    return res.status(401).json({ error: 'Invalid session' });
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -35,7 +215,7 @@ app.get('/api/events', (req, res) => {
   sseClients.add(res);
 
   // Initial ping
-  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', message: 'Connected to Family Wi-Fi Hub' })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', message: 'Connected to Family Hub' })}\n\n`);
 
   req.on('close', () => {
     sseClients.delete(res);

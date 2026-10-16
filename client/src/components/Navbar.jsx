@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, QrCode, Heart, Eye, Smartphone, Monitor, Sun, Moon } from 'lucide-react';
+import { Wifi, QrCode, Heart, Eye, Smartphone, Monitor, Sun, Moon, Key, LogOut, Lock } from 'lucide-react';
 
 export default function Navbar({
   profiles,
@@ -11,7 +11,10 @@ export default function Navbar({
   onToggleSeniorMode,
   darkMode,
   onToggleDarkMode,
-  isConnected
+  isConnected,
+  currentUser,
+  onLogout,
+  onOpenChangePassword
 }) {
   return (
     <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 shadow-xs transition-colors duration-200">
@@ -41,7 +44,9 @@ export default function Navbar({
                     Wi-Fi
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Home network dashboard • No cloud, zero passwords</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Private Family Dashboard • {currentUser ? `Signed in as ${currentUser.name.split(' ')[0]}` : 'Protected'}
+                </p>
               </div>
             </div>
 
@@ -53,6 +58,20 @@ export default function Navbar({
                 title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
               >
                 {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
+              </button>
+              <button
+                onClick={onOpenChangePassword}
+                className="p-2 text-slate-600 dark:text-slate-300 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
+                title="Change Password"
+              >
+                <Key className="w-5 h-5" />
+              </button>
+              <button
+                onClick={onLogout}
+                className="p-2 text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition"
+                title="Lock / Sign Out"
+              >
+                <LogOut className="w-5 h-5 text-slate-500 hover:text-rose-500" />
               </button>
               <button
                 onClick={onOpenQrModal}
@@ -123,6 +142,15 @@ export default function Navbar({
               )}
             </button>
 
+            {/* Change Password */}
+            <button
+              onClick={onOpenChangePassword}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-amber-600 dark:hover:text-amber-400 transition shadow-2xs"
+              title="Change Password / Passcode"
+            >
+              <Key className="w-4 h-4" />
+            </button>
+
             {/* Senior View Toggle */}
             <button
               onClick={onToggleSeniorMode}
@@ -153,6 +181,16 @@ export default function Navbar({
             >
               <Smartphone className="w-3.5 h-3.5 text-blue-300" />
               <span>QR Code</span>
+            </button>
+
+            {/* Lock / Sign Out */}
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-rose-600 hover:border-rose-200 dark:hover:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition shadow-2xs"
+              title="Lock dashboard & sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Lock</span>
             </button>
           </div>
 

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 
 const DB_DIR = path.join(__dirname, '..', 'data');
@@ -9,6 +10,10 @@ if (!fs.existsSync(DB_DIR)) {
 const DB_PATH = path.join(DB_DIR, 'family.db');
 
 const db = new sqlite3.Database(DB_PATH);
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(String(password || '').trim()).digest('hex');
+}
 
 // Helper for promise-based queries
 function run(sql, params = []) {
@@ -47,7 +52,23 @@ async function initDB() {
       avatar TEXT NOT NULL,
       color TEXT NOT NULL,
       highContrast INTEGER DEFAULT 0,
-      fontSize TEXT DEFAULT 'normal'
+      fontSize TEXT DEFAULT 'normal',
+      passwordHash TEXT
+    )
+  `);
+
+  try {
+    await run(`ALTER TABLE profiles ADD COLUMN passwordHash TEXT`);
+  } catch (e) {
+    // Column already exists
+  }
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      profileId TEXT NOT NULL,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (profileId) REFERENCES profiles(id) ON DELETE CASCADE
     )
   `);
 
@@ -142,6 +163,9 @@ async function initDB() {
   if (existingProfiles.length === 0) {
     console.log('Seeding initial family members and habits...');
     await seedInitialData();
+  } else {
+    const defaultHash = hashPassword('1234');
+    await run(`UPDATE profiles SET passwordHash = ? WHERE passwordHash IS NULL OR passwordHash = ''`, [defaultHash]);
   }
 }
 
@@ -155,8 +179,8 @@ async function seedInitialData() {
 
   for (const p of profiles) {
     await run(
-      `INSERT INTO profiles (id, name, role, avatar, color, highContrast, fontSize) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [p.id, p.name, p.role, p.avatar, p.color, p.highContrast, p.fontSize]
+      `INSERT INTO profiles (id, name, role, avatar, color, highContrast, fontSize, passwordHash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [p.id, p.name, p.role, p.avatar, p.color, p.highContrast, p.fontSize, hashPassword('1234')]
     );
   }
 
@@ -382,5 +406,6 @@ module.exports = {
   get,
   all,
   initDB,
-  calculateStreak
+  calculateStreak,
+  hashPassword
 };

@@ -7,6 +7,8 @@ import FridgeBoardView from './components/FridgeBoardView';
 import FamilyWallView from './components/FamilyWallView';
 import KudosModal from './components/KudosModal';
 import QrCodeModal from './components/QrCodeModal';
+import LoginModal from './components/LoginModal';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import NotificationToast from './components/NotificationToast';
 import { Sparkles, CheckSquare, ShoppingCart, Monitor, Heart } from 'lucide-react';
 import { playKudosSound, playChime } from './utils/sound';
@@ -15,6 +17,13 @@ import { fireKudosHeart } from './utils/confetti';
 const API_BASE = ''; // proxied or relative
 
 export default function App() {
+  const [authToken, setAuthToken] = useState(() => {
+    return localStorage.getItem('family_auth_token') || sessionStorage.getItem('family_auth_token') || '';
+  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+
   const [profiles, setProfiles] = useState([
     { id: 'you', name: 'You (Mohit)', role: 'You', avatar: '⚡', color: 'blue', highContrast: 0, fontSize: 'normal' },
     { id: 'mom', name: 'Mom', role: 'Mom', avatar: '🌸', color: 'rose', highContrast: 1, fontSize: 'large' },
@@ -55,6 +64,35 @@ export default function App() {
   const [kudosTargetId, setKudosTargetId] = useState(null);
   const [notifications, setNotifications] = useState([]);
 
+  // Authenticated Fetch Helper
+  const authFetch = useCallback(
+    async (endpoint, options = {}) => {
+      const token = localStorage.getItem('family_auth_token') || sessionStorage.getItem('family_auth_token');
+      const headers = {
+        ...(options.headers || {}),
+        ...(options.body && typeof options.body === 'string' && !options.headers?.['Content-Type']
+          ? { 'Content-Type': 'application/json' }
+          : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      };
+
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers
+      });
+
+      if (res.status === 401 && endpoint !== '/api/auth/login' && endpoint !== '/api/auth/me') {
+        localStorage.removeItem('family_auth_token');
+        sessionStorage.removeItem('family_auth_token');
+        setAuthToken('');
+        setCurrentUser(null);
+      }
+
+      return res;
+    },
+    []
+  );
+
   // Sync dark mode with HTML root and document body
   useEffect(() => {
     if (darkMode) {
@@ -66,6 +104,60 @@ export default function App() {
     }
     localStorage.setItem('dark_mode', String(darkMode));
   }, [darkMode]);
+
+  // Check auth session on startup
+  useEffect(() => {
+    const token = localStorage.getItem('family_auth_token') || sessionStorage.getItem('family_auth_token');
+    if (!token) {
+      setIsAuthLoading(false);
+      return;
+    }
+
+    fetch(`${API_BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.authenticated && data.user) {
+          setCurrentUser(data.user);
+          setAuthToken(token);
+          setActiveProfileId(data.user.id);
+          if (data.user.highContrast) {
+            setSeniorMode(true);
+            localStorage.setItem('senior_mode', 'true');
+          }
+        } else {
+          localStorage.removeItem('family_auth_token');
+          sessionStorage.removeItem('family_auth_token');
+          setAuthToken('');
+          setCurrentUser(null);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        setIsAuthLoading(false);
+      });
+  }, []);
+
+  const handleLoginSuccess = (token, user) => {
+    setAuthToken(token);
+    setCurrentUser(user);
+    setActiveProfileId(user.id);
+    if (user.highContrast) {
+      setSeniorMode(true);
+      localStorage.setItem('senior_mode', 'true');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authFetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {}
+    localStorage.removeItem('family_auth_token');
+    sessionStorage.removeItem('family_auth_token');
+    setAuthToken('');
+    setCurrentUser(null);
+  };
 
   const addNotification = useCallback((title, message, icon = '🔔') => {
     const id = Date.now() + Math.random();
@@ -82,7 +174,7 @@ export default function App() {
   // Fetch initial data
   const loadProfiles = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/profiles`);
+      const res = await authFetch('/api/profiles');
       if (res.ok) {
         const data = await res.json();
         setProfiles(data);
@@ -90,11 +182,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadHabits = useCallback(async (date) => {
     try {
-      const res = await fetch(`${API_BASE}/api/habits?date=${date}`);
+      const res = await authFetch(`/api/habits?date=${date}`);
       if (res.ok) {
         const data = await res.json();
         setHabits(data.habits || []);
@@ -102,11 +194,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadChores = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/chores`);
+      const res = await authFetch('/api/chores');
       if (res.ok) {
         const data = await res.json();
         setChores(data || []);
@@ -114,11 +206,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadGroceries = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/groceries`);
+      const res = await authFetch('/api/groceries');
       if (res.ok) {
         const data = await res.json();
         setGroceries(data || []);
@@ -126,11 +218,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadNotes = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/notes`);
+      const res = await authFetch('/api/notes');
       if (res.ok) {
         const data = await res.json();
         setNotes(data || []);
@@ -138,11 +230,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadKudos = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/kudos`);
+      const res = await authFetch('/api/kudos');
       if (res.ok) {
         const data = await res.json();
         setKudosList(data || []);
@@ -150,11 +242,11 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadStats = useCallback(async (date) => {
     try {
-      const res = await fetch(`${API_BASE}/api/stats/today?date=${date}`);
+      const res = await authFetch(`/api/stats/today?date=${date}`);
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -162,7 +254,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [authFetch]);
 
   const loadNetworkInfo = useCallback(async () => {
     try {
@@ -187,14 +279,21 @@ export default function App() {
   }, [loadHabits, loadChores, loadGroceries, loadNotes, loadKudos, loadStats, selectedDate]);
 
   useEffect(() => {
-    loadProfiles();
-    loadNetworkInfo();
-    refreshAll();
-  }, [loadProfiles, loadNetworkInfo, refreshAll]);
+    if (authToken && currentUser) {
+      loadProfiles();
+      loadNetworkInfo();
+      refreshAll();
+    }
+  }, [authToken, currentUser, loadProfiles, loadNetworkInfo, refreshAll]);
 
-  // Server-Sent Events (SSE) for Real-Time Wi-Fi Sync
+  // Server-Sent Events (SSE) for Real-Time Sync
   useEffect(() => {
-    const sse = new EventSource(`${API_BASE}/api/events`);
+    if (!authToken || !currentUser) {
+      setIsConnected(false);
+      return;
+    }
+
+    const sse = new EventSource(`${API_BASE}/api/events?token=${encodeURIComponent(authToken)}`);
 
     sse.onopen = () => {
       setIsConnected(true);
@@ -247,7 +346,7 @@ export default function App() {
     return () => {
       sse.close();
     };
-  }, [selectedDate, activeProfileId, loadHabits, loadStats, loadChores, loadGroceries, loadNotes, loadKudos, loadProfiles, addNotification]);
+  }, [authToken, currentUser, selectedDate, activeProfileId, loadHabits, loadStats, loadChores, loadGroceries, loadNotes, loadKudos, loadProfiles, addNotification]);
 
   // Profile Selection & Device Memory
   const handleSelectProfile = (id) => {
@@ -292,7 +391,7 @@ export default function App() {
     );
 
     try {
-      await fetch(`${API_BASE}/api/habits/${id}/toggle`, {
+      await authFetch(`/api/habits/${id}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date })
@@ -306,7 +405,7 @@ export default function App() {
 
   const handleAddHabit = async (data) => {
     try {
-      await fetch(`${API_BASE}/api/habits`, {
+      await authFetch('/api/habits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -320,7 +419,7 @@ export default function App() {
 
   const handleDeleteHabit = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/habits/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/habits/${id}`, { method: 'DELETE' });
       loadHabits(selectedDate);
       loadStats(selectedDate);
     } catch (e) {
@@ -330,7 +429,7 @@ export default function App() {
 
   const handleToggleChore = async (id, completedById) => {
     try {
-      await fetch(`${API_BASE}/api/chores/${id}/toggle`, {
+      await authFetch(`/api/chores/${id}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completedById })
@@ -344,7 +443,7 @@ export default function App() {
 
   const handleAddChore = async (data) => {
     try {
-      await fetch(`${API_BASE}/api/chores`, {
+      await authFetch('/api/chores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -357,7 +456,7 @@ export default function App() {
 
   const handleDeleteChore = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/chores/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/chores/${id}`, { method: 'DELETE' });
       loadChores();
     } catch (e) {
       console.error(e);
@@ -366,7 +465,7 @@ export default function App() {
 
   const handleToggleGrocery = async (id, boughtById) => {
     try {
-      await fetch(`${API_BASE}/api/groceries/${id}/toggle`, {
+      await authFetch(`/api/groceries/${id}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ boughtById })
@@ -380,7 +479,7 @@ export default function App() {
 
   const handleAddGrocery = async (data) => {
     try {
-      await fetch(`${API_BASE}/api/groceries`, {
+      await authFetch('/api/groceries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -394,7 +493,7 @@ export default function App() {
 
   const handleDeleteGrocery = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/groceries/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/groceries/${id}`, { method: 'DELETE' });
       loadGroceries();
     } catch (e) {
       console.error(e);
@@ -403,7 +502,7 @@ export default function App() {
 
   const handleClearBoughtGroceries = async () => {
     try {
-      await fetch(`${API_BASE}/api/groceries/clear-bought`, { method: 'POST' });
+      await authFetch('/api/groceries/clear-bought', { method: 'POST' });
       loadGroceries();
     } catch (e) {
       console.error(e);
@@ -412,7 +511,7 @@ export default function App() {
 
   const handleAddNote = async (data) => {
     try {
-      await fetch(`${API_BASE}/api/notes`, {
+      await authFetch('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -425,7 +524,7 @@ export default function App() {
 
   const handleTogglePinNote = async (id, isPinned) => {
     try {
-      await fetch(`${API_BASE}/api/notes/${id}`, {
+      await authFetch(`/api/notes/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isPinned })
@@ -438,7 +537,7 @@ export default function App() {
 
   const handleDeleteNote = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/notes/${id}`, { method: 'DELETE' });
+      await authFetch(`/api/notes/${id}`, { method: 'DELETE' });
       loadNotes();
     } catch (e) {
       console.error(e);
@@ -447,7 +546,7 @@ export default function App() {
 
   const handleSendKudos = async (data) => {
     try {
-      await fetch(`${API_BASE}/api/kudos`, {
+      await authFetch('/api/kudos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -457,6 +556,27 @@ export default function App() {
       console.error(e);
     }
   };
+
+  // Loading Screen while verifying session
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-white">
+        <div className="w-16 h-16 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-3xl mb-4 animate-bounce">
+          🏡
+        </div>
+        <h2 className="text-xl font-bold tracking-tight mb-2">Ambaldhage Family Hub</h2>
+        <div className="flex items-center gap-2 text-sm text-slate-400">
+          <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span>Verifying private family session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Not Logged In: Show Login Modal
+  if (!authToken || !currentUser) {
+    return <LoginModal onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-20 sm:pb-12 transition-colors duration-200 ${seniorMode ? 'senior-mode' : ''}`}>
@@ -476,6 +596,9 @@ export default function App() {
         darkMode={darkMode}
         onToggleDarkMode={handleToggleDarkMode}
         isConnected={isConnected}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onOpenChangePassword={() => setShowChangePasswordModal(true)}
       />
 
       <main className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
@@ -686,6 +809,13 @@ export default function App() {
       </nav>
 
       {/* Modals & Notifications */}
+      <ChangePasswordModal
+        isOpen={showChangePasswordModal}
+        onClose={() => setShowChangePasswordModal(false)}
+        authFetch={authFetch}
+        currentUserName={currentUser?.name}
+      />
+
       <QrCodeModal
         isOpen={showQrModal}
         onClose={() => setShowQrModal(false)}
