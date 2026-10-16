@@ -23,6 +23,33 @@ npm start
 
 ---
 
+## 🌐 Free Cloud Hosting (Render.com)
+
+Deploy this app 100% free so Mom, Dad, and You can access it anytime from anywhere (even on mobile data outside home):
+
+1. **Push to GitHub**:
+   ```bash
+   # Create a new repository on https://github.com/new (e.g. "ambaldhage-family-hub")
+   git remote add origin https://github.com/mohitambaldhage/ambaldhage-family-hub.git
+   git push -u origin main
+   ```
+
+2. **Deploy on Render**:
+   - Go to [render.com](https://render.com) and log in with your GitHub account.
+   - Click **New +** → **Web Service** (or choose **Blueprint** and pick this repo).
+   - Select your `ambaldhage-family-hub` repository.
+   - Configure (Render auto-detects `render.yaml`):
+     - **Runtime**: `Node`
+     - **Build Command**: `npm run build`
+     - **Start Command**: `npm start`
+     - **Instance Type**: `Free`
+   - Click **Deploy Web Service**!
+
+Render will build the app and give you a free live URL (e.g. `https://ambaldhage-family-hub.onrender.com`).
+
+
+---
+
 ## 🎯 Features Implemented
 
 ### 1. Zero-Friction Profile System
