@@ -5,11 +5,17 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "build": "node -e \"if (process.platform === 'linux') require('child_process').execSync('npm rebuild sqlite3 --build-from-source', {stdio: 'inherit'})\" && npm --prefix client install && npm --prefix client run build",
+    "build": "npm --prefix client install && npm --prefix client run build",
     "dev:server": "node server/index.js",
     "dev:client": "npm --prefix client run dev"
   },
-  "keywords": ["family", "habits", "chores", "wifi", "dashboard"],
+  "keywords": [
+    "family",
+    "habits",
+    "chores",
+    "wifi",
+    "dashboard"
+  ],
   "author": "Mohit Ambaldhage",
   "license": "MIT",
   "type": "commonjs",
@@ -17,7 +23,7 @@
     "cors": "^2.8.6",
     "express": "^5.3.0",
     "qrcode": "^1.5.4",
-    "sqlite3": "^6.0.1"
+    "sql.js": "^1.15.0"
   },
   "engines": {
     "node": ">=20.0.0"

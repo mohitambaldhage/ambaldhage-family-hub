@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const sqlite3 = require('sqlite3').verbose();
+const initSqlJs = require('sql.js');
 
 const DB_DIR = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DB_DIR)) {
@@ -9,38 +9,86 @@ if (!fs.existsSync(DB_DIR)) {
 }
 const DB_PATH = path.join(DB_DIR, 'family.db');
 
-const db = new sqlite3.Database(DB_PATH);
+let db = null;
+
+function saveDb() {
+  if (!db) return;
+  try {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_PATH, buffer);
+  } catch (err) {
+    console.error('Error saving DB to disk:', err);
+  }
+}
 
 function hashPassword(password) {
   return crypto.createHash('sha256').update(String(password || '').trim()).digest('hex');
 }
 
+async function getDb() {
+  if (db) return db;
+  const SQL = await initSqlJs();
+  if (fs.existsSync(DB_PATH)) {
+    try {
+      const filebuffer = fs.readFileSync(DB_PATH);
+      if (filebuffer.length > 0) {
+        db = new SQL.Database(filebuffer);
+      } else {
+        db = new SQL.Database();
+      }
+    } catch (e) {
+      db = new SQL.Database();
+    }
+  } else {
+    db = new SQL.Database();
+  }
+  return db;
+}
+
 // Helper for promise-based queries
-function run(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ lastID: this.lastID, changes: this.changes });
-    });
-  });
+async function run(sql, params = []) {
+  const database = await getDb();
+  const cleanParams = (Array.isArray(params) ? params : [params]).map((p) => (p === undefined ? null : p));
+
+  database.run(sql, cleanParams);
+
+  let lastID = 0;
+  try {
+    const res = database.exec("SELECT last_insert_rowid() AS id");
+    if (res.length > 0 && res[0].values.length > 0) {
+      lastID = res[0].values[0][0];
+    }
+  } catch (e) {}
+
+  const changes = database.getRowsModified();
+  saveDb();
+  return { lastID, changes };
 }
 
-function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+async function get(sql, params = []) {
+  const rows = await all(sql, params);
+  return rows.length > 0 ? rows[0] : null;
 }
 
-function all(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows || []);
-    });
-  });
+async function all(sql, params = []) {
+  const database = await getDb();
+  const cleanParams = (Array.isArray(params) ? params : [params]).map((p) => (p === undefined ? null : p));
+
+  try {
+    const stmt = database.prepare(sql);
+    if (cleanParams.length > 0) {
+      stmt.bind(cleanParams);
+    }
+    const rows = [];
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return rows;
+  } catch (err) {
+    throw err;
+  }
 }
 
 async function initDB() {
