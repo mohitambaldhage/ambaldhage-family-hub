@@ -160,13 +160,14 @@ app.post('/api/auth/change-password', async (req, res) => {
 
 // Protect all remaining /api/* routes with authMiddleware
 app.use('/api', async (req, res, next) => {
-  // Allow public auth endpoints and network-info
+  // Allow public auth endpoints, network-info, and calendar ics subscriptions
   if (
     req.path === '/auth/login' ||
     req.path === '/auth/members' ||
     req.path === '/auth/me' ||
     req.path === '/auth/logout' ||
-    req.path === '/network-info'
+    req.path === '/network-info' ||
+    req.path.startsWith('/calendar/ics')
   ) {
     return next();
   }
@@ -285,11 +286,12 @@ app.get('/api/profiles', async (req, res) => {
 app.put('/api/profiles/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, avatar, color, highContrast, fontSize } = req.body;
+    const { name, avatar, color, highContrast, fontSize, email, googleCalendarId } = req.body;
     await run(
       `UPDATE profiles SET name = COALESCE(?, name), avatar = COALESCE(?, avatar), color = COALESCE(?, color), 
-       highContrast = COALESCE(?, highContrast), fontSize = COALESCE(?, fontSize) WHERE id = ?`,
-      [name, avatar, color, highContrast !== undefined ? (highContrast ? 1 : 0) : null, fontSize, id]
+       highContrast = COALESCE(?, highContrast), fontSize = COALESCE(?, fontSize),
+       email = COALESCE(?, email), googleCalendarId = COALESCE(?, googleCalendarId) WHERE id = ?`,
+      [name, avatar, color, highContrast !== undefined ? (highContrast ? 1 : 0) : null, fontSize, email, googleCalendarId, id]
     );
     const updated = await get('SELECT * FROM profiles WHERE id = ?', [id]);
     broadcastEvent('PROFILES_UPDATED', updated);
@@ -562,6 +564,33 @@ app.post('/api/groceries/clear-bought', async (req, res) => {
   }
 });
 
+// BATCH ADD GROCERIES (used by Chatbot / Quick lists)
+app.post('/api/groceries/batch', async (req, res) => {
+  try {
+    const { items, addedById } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Items array is required' });
+    }
+    const createdItems = [];
+    for (const itm of items) {
+      const name = typeof itm === 'string' ? itm : itm.item;
+      if (!name || !name.trim()) continue;
+      const qty = (typeof itm === 'object' && itm.quantity) ? itm.quantity : '';
+      const cat = (typeof itm === 'object' && itm.category) ? itm.category : 'Other';
+      const result = await run(
+        'INSERT INTO groceries (item, quantity, category, addedById) VALUES (?, ?, ?, ?)',
+        [name.trim(), qty.trim(), cat, addedById || 'mom']
+      );
+      const created = await get('SELECT * FROM groceries WHERE id = ?', [result.lastID]);
+      createdItems.push(created);
+    }
+    broadcastEvent('GROCERY_UPDATED', { action: 'BATCH_CREATED', count: createdItems.length });
+    res.status(201).json({ success: true, count: createdItems.length, items: createdItems });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // STICKY NOTES
 app.get('/api/notes', async (req, res) => {
   try {
@@ -695,7 +724,307 @@ app.get('/api/stats/today', async (req, res) => {
   }
 });
 
-// Serve frontend in production
+// CALENDAR EVENTS & GOOGLE CALENDAR SYNC
+app.get('/api/calendar/events', async (req, res) => {
+  try {
+    const { profileId } = req.query;
+    let events;
+    if (profileId && profileId !== 'all') {
+      events = await all(
+        'SELECT * FROM calendar_events WHERE profileId = ? OR profileId = "all" ORDER BY eventDate ASC, startTime ASC',
+        [profileId]
+      );
+    } else {
+      events = await all('SELECT * FROM calendar_events ORDER BY eventDate ASC, startTime ASC');
+    }
+    res.json(events);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/calendar/events', async (req, res) => {
+  try {
+    const { title, description, profileId, eventDate, startTime, endTime, isAllDay, location } = req.body;
+    if (!title || !eventDate) {
+      return res.status(400).json({ error: 'Title and eventDate are required' });
+    }
+    const result = await run(
+      `INSERT INTO calendar_events (title, description, profileId, eventDate, startTime, endTime, isAllDay, location, createdById)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        title.trim(),
+        description || '',
+        profileId || 'all',
+        eventDate,
+        startTime || null,
+        endTime || null,
+        isAllDay ? 1 : 0,
+        location || '',
+        req.user?.id || 'you'
+      ]
+    );
+    const created = await get('SELECT * FROM calendar_events WHERE id = ?', [result.lastID]);
+    broadcastEvent('CALENDAR_UPDATED', { action: 'CREATED', event: created });
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/calendar/events/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, profileId, eventDate, startTime, endTime, isAllDay, location } = req.body;
+    await run(
+      `UPDATE calendar_events SET title = COALESCE(?, title), description = COALESCE(?, description),
+       profileId = COALESCE(?, profileId), eventDate = COALESCE(?, eventDate), startTime = COALESCE(?, startTime),
+       endTime = COALESCE(?, endTime), isAllDay = COALESCE(?, isAllDay), location = COALESCE(?, location) WHERE id = ?`,
+      [title, description, profileId, eventDate, startTime, endTime, isAllDay !== undefined ? (isAllDay ? 1 : 0) : null, location, id]
+    );
+    const updated = await get('SELECT * FROM calendar_events WHERE id = ?', [id]);
+    broadcastEvent('CALENDAR_UPDATED', { action: 'UPDATED', event: updated });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/calendar/events/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await run('DELETE FROM calendar_events WHERE id = ?', [id]);
+    broadcastEvent('CALENDAR_UPDATED', { action: 'DELETED', id: Number(id) });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// RFC 5545 iCalendar (.ics) Feed for Personal Google Calendar Sync
+// Every member (Mom, Dad, Mohit) can subscribe using this URL in Google Calendar
+app.get('/api/calendar/ics/:profileId', async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const profile = await get('SELECT * FROM profiles WHERE id = ?', [profileId]);
+    const memberName = profile ? profile.name : 'Family Member';
+
+    const events = profileId === 'all'
+      ? await all('SELECT * FROM calendar_events')
+      : await all('SELECT * FROM calendar_events WHERE profileId = ? OR profileId = "all"', [profileId]);
+
+    const chores = profileId === 'all'
+      ? await all('SELECT * FROM chores WHERE dueDate IS NOT NULL')
+      : await all('SELECT * FROM chores WHERE (assigneeId = ? OR assigneeId = "all") AND dueDate IS NOT NULL', [profileId]);
+
+    const habits = profileId === 'all'
+      ? await all('SELECT * FROM habits WHERE archived = 0')
+      : await all('SELECT * FROM habits WHERE profileId = ? AND archived = 0', [profileId]);
+
+    const now = new Date();
+    const nowStr = now.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+
+    const formatDateForIcs = (dateStr, timeStr) => {
+      if (!dateStr) return null;
+      const cleanDate = dateStr.replace(/-/g, '');
+      if (!timeStr) {
+        return { value: cleanDate, isAllDay: true };
+      }
+      const cleanTime = timeStr.replace(/:/g, '') + '00';
+      return { value: `${cleanDate}T${cleanTime}`, isAllDay: false };
+    };
+
+    let lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Ambaldhage Family Hub//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      `X-WR-CALNAME:Ambaldhage Hub - ${memberName}`,
+      'X-WR-TIMEZONE:Asia/Kolkata',
+      'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
+      'X-PUBLISHED-TTL:PT1H'
+    ];
+
+    for (const ev of events) {
+      const dt = formatDateForIcs(ev.eventDate, ev.startTime);
+      if (!dt) continue;
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:hub-cal-${ev.id}@ambaldhage.app`);
+      lines.push(`DTSTAMP:${nowStr}`);
+      if (dt.isAllDay) {
+        lines.push(`DTSTART;VALUE=DATE:${dt.value}`);
+      } else {
+        lines.push(`DTSTART:${dt.value}`);
+        if (ev.endTime) {
+          const dtEnd = formatDateForIcs(ev.eventDate, ev.endTime);
+          lines.push(`DTEND:${dtEnd.value}`);
+        }
+      }
+      lines.push(`SUMMARY:${ev.title.replace(/\n/g, ' ')}`);
+      if (ev.description) lines.push(`DESCRIPTION:${ev.description.replace(/\n/g, ' ')}`);
+      if (ev.location) lines.push(`LOCATION:${ev.location.replace(/\n/g, ' ')}`);
+      lines.push('STATUS:CONFIRMED');
+      lines.push('END:VEVENT');
+    }
+
+    for (const ch of chores) {
+      const dt = formatDateForIcs(ch.dueDate);
+      if (!dt) continue;
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:hub-chore-${ch.id}@ambaldhage.app`);
+      lines.push(`DTSTAMP:${nowStr}`);
+      lines.push(`DTSTART;VALUE=DATE:${dt.value}`);
+      lines.push(`SUMMARY:Chore: ${ch.title.replace(/\n/g, ' ')}${ch.isCompleted ? ' (Done)' : ''}`);
+      if (ch.description) lines.push(`DESCRIPTION:${ch.description.replace(/\n/g, ' ')}`);
+      lines.push(ch.isCompleted ? 'STATUS:COMPLETED' : 'STATUS:CONFIRMED');
+      lines.push('END:VEVENT');
+    }
+
+    lines.push('END:VCALENDAR');
+
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `inline; filename="ambaldhage-${profileId}.ics"`);
+    res.send(lines.join('\r\n'));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// FAMILY AI ASSISTANT / CHATBOT
+// Supports interactive checkbox lists (for Mom's groceries, chores, routines, and calendar planning)
+app.post('/api/assistant/chat', async (req, res) => {
+  try {
+    const { message, profileId } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const text = message.trim().toLowerCase();
+    const userProfile = profileId ? await get('SELECT * FROM profiles WHERE id = ?', [profileId]) : req.user;
+    const authorName = userProfile ? userProfile.name.split(' ')[0] : 'Friend';
+
+    // 1. Mom's Grocery Checklist (requested specifically: "give me a list of groceries items in checkbox type for mom")
+    const isGroceryRequest = 
+      text.includes('grocer') || 
+      text.includes('vegetable') || 
+      text.includes('kitchen') || 
+      text.includes('pantry') || 
+      text.includes('sabzi') || 
+      text.includes('subji') || 
+      text.includes('spices') || 
+      text.includes('checkbox') ||
+      text.includes('shopping list') ||
+      (text.includes('list') && (text.includes('mom') || text.includes('item')));
+
+    if (isGroceryRequest) {
+      let checklist = [];
+      let title = "Mom's Essential Kitchen & Grocery Checklist";
+
+      if (text.includes('vegetable') || text.includes('sabzi') || text.includes('veggie')) {
+        title = "Fresh Vegetables & Greens Checklist";
+        checklist = [
+          { item: 'Tomatoes (Hybrid / Desi)', quantity: '1.5 kg', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Onions (Nashik Red)', quantity: '2 kg', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Potatoes (Aloo)', quantity: '2 kg', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Green Chillies & Fresh Coriander', quantity: '1 bunch', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Ginger (Adrak) & Garlic (Lehsun)', quantity: '250g', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Fresh Spinach (Palak) or Methi', quantity: '2 bunches', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Bhindi (Ladies Finger) / Beans', quantity: '500g', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Lemon (Nimbu)', quantity: '4 pieces', category: 'Vegetables & Fruits', checked: true }
+        ];
+      } else if (text.includes('dairy') || text.includes('milk') || text.includes('breakfast')) {
+        title = "Morning Breakfast & Dairy Essentials";
+        checklist = [
+          { item: 'Fresh Milk (Amul / Nandini packets)', quantity: '2 Litres', category: 'Dairy & Milk', checked: true },
+          { item: 'Curd / Plain Dahi', quantity: '500g pouch', category: 'Dairy & Milk', checked: true },
+          { item: 'Paneer (Fresh Malai)', quantity: '200g', category: 'Dairy & Milk', checked: true },
+          { item: 'Brown / Multigrain Bread', quantity: '1 Loaf', category: 'Snacks & Bakery', checked: true },
+          { item: 'Butter / Pure Desi Ghee', quantity: '500g', category: 'Dairy & Milk', checked: true },
+          { item: 'Eggs (Farm fresh)', quantity: '6-pack', category: 'Snacks & Bakery', checked: true },
+          { item: 'Oats / Poha (Flattened rice)', quantity: '1 kg pack', category: 'Pantry & Spices', checked: true }
+        ];
+      } else if (text.includes('spice') || text.includes('masala') || text.includes('dal') || text.includes('pulse')) {
+        title = "Pantry, Dals & Spice Refill Checklist";
+        checklist = [
+          { item: 'Toor Dal (Yellow Arhar)', quantity: '1 kg', category: 'Pantry & Spices', checked: true },
+          { item: 'Moong Dal (Yellow / Green)', quantity: '500g', category: 'Pantry & Spices', checked: true },
+          { item: 'Basmati / Sona Masoori Rice', quantity: '5 kg bag', category: 'Pantry & Spices', checked: true },
+          { item: 'Wheat Flour (Atta)', quantity: '5 kg bag', category: 'Pantry & Spices', checked: true },
+          { item: 'Jeera (Cumin seeds)', quantity: '200g', category: 'Pantry & Spices', checked: true },
+          { item: 'Mustard seeds (Rai)', quantity: '200g', category: 'Pantry & Spices', checked: true },
+          { item: 'Turmeric powder (Haldi)', quantity: '250g', category: 'Pantry & Spices', checked: true },
+          { item: 'Sunflower / Groundnut Cooking Oil', quantity: '1 Litre pouch', category: 'Pantry & Spices', checked: true }
+        ];
+      } else {
+        // Default Mom's Grocery Checklist (comprehensive everyday essentials with checkboxes)
+        checklist = [
+          { item: 'Fresh Milk (2 packets)', quantity: '2 Litres', category: 'Dairy & Milk', checked: true },
+          { item: 'Tomatoes & Red Onions', quantity: '2 kg each', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Green Chillies, Ginger & Coriander', quantity: '1 bunch', category: 'Vegetables & Fruits', checked: true },
+          { item: 'Toor Dal / Moong Dal', quantity: '1 kg', category: 'Pantry & Spices', checked: true },
+          { item: 'Cooking Oil / Cow Ghee', quantity: '1 Litre', category: 'Pantry & Spices', checked: true },
+          { item: 'Dishwashing Gel / Bar', quantity: '1 refill', category: 'Household & Chemist', checked: true },
+          { item: 'Chai Patti (Assam Tea)', quantity: '500g', category: 'Pantry & Spices', checked: true },
+          { item: 'Seasonal Apples & Bananas', quantity: '1 Dozen', category: 'Vegetables & Fruits', checked: true }
+        ];
+      }
+
+      return res.json({
+        reply: `Here is ${title} in clean checkbox format for ${authorName}. Select what you need and tap **"Add to Fridge Board"** below!`,
+        type: 'grocery_checklist',
+        title,
+        items: checklist
+      });
+    }
+
+    // 2. Chores & Schedule query
+    if (text.includes('chore') || text.includes('task') || text.includes('pending') || text.includes('clean')) {
+      const pendingChores = await all('SELECT * FROM chores WHERE isCompleted = 0 ORDER BY dueDate ASC LIMIT 5');
+      return res.json({
+        reply: `Here are the top pending household chores:`,
+        type: 'chores_summary',
+        chores: pendingChores
+      });
+    }
+
+    // 3. Google Calendar & Events
+    if (text.includes('calendar') || text.includes('event') || text.includes('schedule') || text.includes('appointment')) {
+      const upcomingEvents = await all('SELECT * FROM calendar_events ORDER BY eventDate ASC LIMIT 4');
+      return res.json({
+        reply: `Here is the upcoming family calendar overview:`,
+        type: 'calendar_summary',
+        events: upcomingEvents
+      });
+    }
+
+    // 4. Health & Medicine
+    if (text.includes('health') || text.includes('medicine') || text.includes('tablet') || text.includes('doctor') || text.includes('bp')) {
+      return res.json({
+        reply: `Health & Wellness Checklist for the Ambaldhage Family:
+• 🌸 **Mom**: Morning BP tablet after breakfast, Evening prayer, Night Calcium tablet.
+• ☕ **Dad**: Morning health diary reading, Evening 45-min park walk, Multivitamin.
+• ⚡ **Mohit**: 3 Litres water daily, Gym & workout session.`,
+        type: 'text'
+      });
+    }
+
+    // Default friendly assistant response
+    return res.json({
+      reply: `Hi ${authorName}! I'm your Ambaldhage Family Assistant. I can prepare grocery checklists with checkboxes, plan chores, and sync your schedule with Google Calendar. Try tapping one of the quick suggestions below:`,
+      type: 'suggestions',
+      suggestions: [
+        "🛒 Mom's Grocery Checklist (Checkboxes)",
+        "🥦 Fresh Vegetables & Greens",
+        "🥛 Dairy & Breakfast Essentials",
+        "📅 Upcoming Calendar Schedule",
+        "🧹 View Pending Chores"
+      ]
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 const distPath = path.join(__dirname, '..', 'client', 'dist');
 app.use(express.static(distPath));
 

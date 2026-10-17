@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, Calendar, Sparkles, Flame, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, CheckCircle2 } from 'lucide-react';
 
 export default function HouseScoreBanner({
   stats,
@@ -45,62 +45,28 @@ export default function HouseScoreBanner({
     onChangeDate(todayStr);
   };
 
-  let celebrationText = '🌅 Starting the day fresh together!';
-  let cheerBadge = 'Keep Going';
-  if (percentage === 100 && total > 0) {
-    celebrationText = '🏆 Perfect 100%! All household habits conquered today!';
-    cheerBadge = 'All Done! 🎉';
-  } else if (percentage >= 80) {
-    celebrationText = '🔥 Fantastic teamwork! The family is almost done!';
-    cheerBadge = 'Super Day 🔥';
-  } else if (percentage >= 50) {
-    celebrationText = '✨ Solid progress! Halfway through our daily routines!';
-    cheerBadge = 'Good Pace ⭐';
-  }
-
   return (
-    <div className="bg-gradient-to-br from-white dark:from-slate-900 via-blue-50/40 dark:via-slate-800/40 to-indigo-50/30 dark:to-slate-800/20 rounded-2xl border border-blue-100/80 dark:border-slate-800 p-4 sm:p-5 shadow-sm shadow-blue-500/5 mb-6 transition-colors duration-200">
+    <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 sm:p-5 mb-5 transition-colors">
       
-      {/* Top Header: Score & Date Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-100/60 dark:border-slate-800">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-400 text-white flex items-center justify-center font-bold text-xl shadow-md shadow-orange-500/20">
-            {percentage >= 80 ? '🔥' : '⭐'}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-100/60 dark:bg-blue-950/60 px-2 py-0.5 rounded-md">
-                Daily House Score
-              </span>
-              <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/60 px-2 py-0.5 rounded-md">
-                {cheerBadge}
-              </span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-baseline gap-2 mt-0.5">
-              <span>{percentage}% Complete</span>
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                ({completed} of {total} habits)
-              </span>
-            </h2>
-          </div>
-        </div>
-
-        {/* Date Navigation */}
-        <div className="flex items-center gap-1.5 self-start sm:self-center bg-white/90 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+      {/* Top Row: Date Selector & Overall Percentage */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-neutral-100 dark:border-neutral-800">
+        
+        {/* Date Navigator */}
+        <div className="flex items-center gap-1.5">
           <button
             onClick={handlePrevDay}
-            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            className="p-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 transition"
             title="Previous Day"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          
+
           <button
             onClick={handleSetToday}
-            className={`px-2.5 py-1 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold border transition ${
               isToday
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                ? 'bg-black text-white dark:bg-white dark:text-black border-black dark:border-white'
+                : 'border-neutral-300 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
@@ -109,65 +75,65 @@ export default function HouseScoreBanner({
 
           <button
             onClick={handleNextDay}
-            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            className="p-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 transition"
             title="Next Day"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
+
+          {!isToday && (
+            <button
+              onClick={handleSetToday}
+              className="text-xs text-neutral-500 hover:text-black dark:hover:text-white underline ml-1"
+            >
+              Back to Today
+            </button>
+          )}
+        </div>
+
+        {/* Daily Completion Score */}
+        <div className="flex items-baseline gap-2 self-start sm:self-auto">
+          <span className="text-xs font-bold uppercase tracking-wider text-neutral-500">
+            Daily Household Completion:
+          </span>
+          <span className="text-lg font-black text-neutral-900 dark:text-white font-mono">
+            {percentage}%
+          </span>
+          <span className="text-xs text-neutral-400 font-mono">
+            ({completed}/{total} habits)
+          </span>
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="mt-3.5">
-        <div className="w-full bg-slate-200/80 dark:bg-slate-700/80 rounded-full h-3 overflow-hidden p-0.5">
+      {/* Clean Minimalist Progress Bar */}
+      <div className="mt-3">
+        <div className="w-full h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden border border-neutral-200 dark:border-neutral-700">
           <div
-            className="bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 h-full rounded-full transition-all duration-500 ease-out shadow-xs"
-            style={{ width: `${Math.max(percentage, 5)}%` }}
+            className="h-full bg-black dark:bg-white rounded-full transition-all duration-300"
+            style={{ width: `${percentage}%` }}
           />
         </div>
-        <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-2 flex items-center gap-1.5">
-          <span>{celebrationText}</span>
-        </p>
       </div>
 
-      {/* Individual Family Member Contribution Cards */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-        {memberStats.map((member) => {
-          const isSelected = activeProfileId === member.profileId;
+      {/* Member Summary Stats (Clean Monochrome Pills) */}
+      <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+        {memberStats.map((ms) => {
+          const isCurrentActive = activeProfileId === ms.profileId;
           return (
             <div
-              key={member.profileId}
-              className={`rounded-xl p-2.5 sm:p-3 border transition-all ${
-                isSelected
-                  ? 'bg-white dark:bg-slate-800 border-blue-300 dark:border-blue-500 shadow-xs ring-1 ring-blue-400/30'
-                  : 'bg-white/60 dark:bg-slate-800/50 border-slate-200/70 dark:border-slate-700/70'
+              key={ms.profileId}
+              className={`p-2 rounded-lg border text-center transition ${
+                isCurrentActive
+                  ? 'bg-neutral-50 dark:bg-neutral-800/80 border-neutral-400 dark:border-neutral-600'
+                  : 'bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800'
               }`}
             >
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base sm:text-lg">{member.avatar}</span>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                    {member.name.split(' ')[0]}
-                  </span>
-                </div>
-                <span className="text-xs font-extrabold text-blue-700 dark:text-blue-400">
-                  {member.percentage}%
-                </span>
+              <div className="flex items-center justify-center gap-1 text-xs font-bold text-neutral-900 dark:text-white">
+                <span>{ms.avatar}</span>
+                <span>{ms.name.split(' ')[0]}</span>
               </div>
-
-              {/* Member progress bar */}
-              <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-blue-500 h-full rounded-full transition-all duration-300"
-                  style={{ width: `${member.percentage}%` }}
-                />
-              </div>
-
-              <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400 mt-1.5">
-                <span>{member.completedHabits} of {member.totalHabits} done</span>
-                {member.percentage === 100 && (
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                )}
+              <div className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400 mt-0.5">
+                {ms.completedHabits}/{ms.totalHabits} done ({ms.percentage}%)
               </div>
             </div>
           );

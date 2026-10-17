@@ -111,6 +111,34 @@ async function initDB() {
     // Column already exists
   }
 
+  try {
+    await run(`ALTER TABLE profiles ADD COLUMN email TEXT`);
+  } catch (e) {
+    // Column already exists
+  }
+
+  try {
+    await run(`ALTER TABLE profiles ADD COLUMN googleCalendarId TEXT`);
+  } catch (e) {
+    // Column already exists
+  }
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT,
+      profileId TEXT DEFAULT 'all',
+      eventDate TEXT NOT NULL,
+      startTime TEXT,
+      endTime TEXT,
+      isAllDay INTEGER DEFAULT 1,
+      location TEXT,
+      createdById TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   await run(`
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -214,21 +242,54 @@ async function initDB() {
   } else {
     const defaultHash = hashPassword('1234');
     await run(`UPDATE profiles SET passwordHash = ? WHERE passwordHash IS NULL OR passwordHash = ''`, [defaultHash]);
+    await run(`UPDATE profiles SET email = 'mohit.ambaldhage@gmail.com' WHERE id = 'you' AND (email IS NULL OR email = '')`);
+    await run(`UPDATE profiles SET email = 'mom.ambaldhage@gmail.com' WHERE id = 'mom' AND (email IS NULL OR email = '')`);
+    await run(`UPDATE profiles SET email = 'dad.ambaldhage@gmail.com' WHERE id = 'dad' AND (email IS NULL OR email = '')`);
+  }
+
+  // Seed sample calendar events if none exist
+  const existingEvents = await all(`SELECT id FROM calendar_events`);
+  if (existingEvents.length === 0) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const toDateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const d1 = new Date();
+    d1.setDate(d1.getDate() + 1);
+    const d2 = new Date();
+    d2.setDate(d2.getDate() + 3);
+    const d3 = new Date();
+    d3.setDate(d3.getDate() + 5);
+
+    await run(
+      `INSERT INTO calendar_events (title, description, profileId, eventDate, startTime, endTime, isAllDay, location, createdById)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['Family Weekly Planning & Dinner', 'Review week routines, chores, and groceries together', 'all', toDateStr(d1), '19:30', '21:00', 0, 'Home Dining Hall', 'you']
+    );
+    await run(
+      `INSERT INTO calendar_events (title, description, profileId, eventDate, startTime, endTime, isAllDay, location, createdById)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['Mom - Health & Dental Checkup Clinic', 'Annual health checkup and routine blood test', 'mom', toDateStr(d2), '10:00', '11:30', 0, 'City Health Centre', 'mom']
+    );
+    await run(
+      `INSERT INTO calendar_events (title, description, profileId, eventDate, startTime, endTime, isAllDay, location, createdById)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['Dad - Car Service & Tyre Balance', 'Scheduled vehicle check and pollution renewal', 'dad', toDateStr(d3), '11:00', '13:00', 0, 'Authorized Service Center', 'dad']
+    );
   }
 }
 
 async function seedInitialData() {
   // Profiles
   const profiles = [
-    { id: 'you', name: 'You (Mohit)', role: 'You', avatar: '⚡', color: 'blue', highContrast: 0, fontSize: 'normal' },
-    { id: 'mom', name: 'Mom', role: 'Mom', avatar: '🌸', color: 'rose', highContrast: 1, fontSize: 'large' },
-    { id: 'dad', name: 'Dad', role: 'Dad', avatar: '☕', color: 'amber', highContrast: 0, fontSize: 'normal' }
+    { id: 'you', name: 'You (Mohit)', role: 'You', avatar: '⚡', color: 'blue', highContrast: 0, fontSize: 'normal', email: 'mohit.ambaldhage@gmail.com', googleCalendarId: 'primary' },
+    { id: 'mom', name: 'Mom', role: 'Mom', avatar: '🌸', color: 'rose', highContrast: 1, fontSize: 'large', email: 'mom.ambaldhage@gmail.com', googleCalendarId: 'primary' },
+    { id: 'dad', name: 'Dad', role: 'Dad', avatar: '☕', color: 'amber', highContrast: 0, fontSize: 'normal', email: 'dad.ambaldhage@gmail.com', googleCalendarId: 'primary' }
   ];
 
   for (const p of profiles) {
     await run(
-      `INSERT INTO profiles (id, name, role, avatar, color, highContrast, fontSize, passwordHash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [p.id, p.name, p.role, p.avatar, p.color, p.highContrast, p.fontSize, hashPassword('1234')]
+      `INSERT INTO profiles (id, name, role, avatar, color, highContrast, fontSize, passwordHash, email, googleCalendarId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [p.id, p.name, p.role, p.avatar, p.color, p.highContrast, p.fontSize, hashPassword('1234'), p.email, p.googleCalendarId]
     );
   }
 

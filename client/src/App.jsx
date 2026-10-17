@@ -4,14 +4,16 @@ import HouseScoreBanner from './components/HouseScoreBanner';
 import HabitsView from './components/HabitsView';
 import ChoresView from './components/ChoresView';
 import FridgeBoardView from './components/FridgeBoardView';
+import FamilyAssistantView from './components/FamilyAssistantView';
+import GoogleCalendarView from './components/GoogleCalendarView';
 import FamilyWallView from './components/FamilyWallView';
 import KudosModal from './components/KudosModal';
 import QrCodeModal from './components/QrCodeModal';
 import LoginModal from './components/LoginModal';
 import ChangePasswordModal from './components/ChangePasswordModal';
 import NotificationToast from './components/NotificationToast';
-import { Sparkles, CheckSquare, ShoppingCart, Monitor, Heart } from 'lucide-react';
-import { playKudosSound, playChime } from './utils/sound';
+import { Sparkles, CheckSquare, ShoppingCart, Bot, Calendar, Monitor, Heart } from 'lucide-react';
+import { playKudosSound } from './utils/sound';
 import { fireKudosHeart } from './utils/confetti';
 
 const API_BASE = ''; // proxied or relative
@@ -25,9 +27,9 @@ export default function App() {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
 
   const [profiles, setProfiles] = useState([
-    { id: 'you', name: 'You (Mohit)', role: 'You', avatar: '⚡', color: 'blue', highContrast: 0, fontSize: 'normal' },
-    { id: 'mom', name: 'Mom', role: 'Mom', avatar: '🌸', color: 'rose', highContrast: 1, fontSize: 'large' },
-    { id: 'dad', name: 'Dad', role: 'Dad', avatar: '☕', color: 'amber', highContrast: 0, fontSize: 'normal' }
+    { id: 'you', name: 'You (Mohit)', role: 'You', avatar: '⚡', color: 'blue', highContrast: 0, fontSize: 'normal', email: 'mohit.ambaldhage@gmail.com' },
+    { id: 'mom', name: 'Mom', role: 'Mom', avatar: '🌸', color: 'rose', highContrast: 1, fontSize: 'large', email: 'mom.ambaldhage@gmail.com' },
+    { id: 'dad', name: 'Dad', role: 'Dad', avatar: '☕', color: 'amber', highContrast: 0, fontSize: 'normal', email: 'dad.ambaldhage@gmail.com' }
   ]);
 
   const [activeProfileId, setActiveProfileId] = useState(() => {
@@ -48,11 +50,13 @@ export default function App() {
     return new Date().toISOString().slice(0, 10);
   });
 
-  const [activeTab, setActiveTab] = useState('habits'); // 'habits' | 'chores' | 'fridge'
+  // Easy to understand primary sections: 'habits' | 'chores' | 'groceries' | 'assistant' | 'calendar'
+  const [activeTab, setActiveTab] = useState('habits');
   const [habits, setHabits] = useState([]);
   const [chores, setChores] = useState([]);
   const [groceries, setGroceries] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [calendarEvents, setCalendarEvents] = useState([]);
   const [kudosList, setKudosList] = useState([]);
   const [stats, setStats] = useState(null);
   const [networkInfo, setNetworkInfo] = useState(null);
@@ -171,7 +175,7 @@ export default function App() {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  // Fetch initial data
+  // Fetch helpers
   const loadProfiles = useCallback(async () => {
     try {
       const res = await authFetch('/api/profiles');
@@ -232,6 +236,18 @@ export default function App() {
     }
   }, [authFetch]);
 
+  const loadCalendarEvents = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/calendar/events');
+      if (res.ok) {
+        const data = await res.json();
+        setCalendarEvents(data || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [authFetch]);
+
   const loadKudos = useCallback(async () => {
     try {
       const res = await authFetch('/api/kudos');
@@ -268,15 +284,16 @@ export default function App() {
     }
   }, []);
 
-  // Refresh everything for selected date
+  // Refresh everything
   const refreshAll = useCallback(() => {
     loadHabits(selectedDate);
     loadChores();
     loadGroceries();
     loadNotes();
+    loadCalendarEvents();
     loadKudos();
     loadStats(selectedDate);
-  }, [loadHabits, loadChores, loadGroceries, loadNotes, loadKudos, loadStats, selectedDate]);
+  }, [loadHabits, loadChores, loadGroceries, loadNotes, loadCalendarEvents, loadKudos, loadStats, selectedDate]);
 
   useEffect(() => {
     if (authToken && currentUser) {
@@ -286,7 +303,7 @@ export default function App() {
     }
   }, [authToken, currentUser, loadProfiles, loadNetworkInfo, refreshAll]);
 
-  // Server-Sent Events (SSE) for Real-Time Sync
+  // Server-Sent Events (SSE) Real-Time Sync
   useEffect(() => {
     if (!authToken || !currentUser) {
       setIsConnected(false);
@@ -304,10 +321,7 @@ export default function App() {
         const payload = JSON.parse(event.data);
         if (payload.type === 'CONNECTED') {
           setIsConnected(true);
-        } else if (payload.type === 'HABIT_TOGGLED') {
-          loadHabits(selectedDate);
-          loadStats(selectedDate);
-        } else if (payload.type === 'HABITS_UPDATED') {
+        } else if (payload.type === 'HABIT_TOGGLED' || payload.type === 'HABITS_UPDATED') {
           loadHabits(selectedDate);
           loadStats(selectedDate);
         } else if (payload.type === 'CHORE_TOGGLED' || payload.type === 'CHORES_UPDATED') {
@@ -318,17 +332,18 @@ export default function App() {
           loadStats(selectedDate);
         } else if (payload.type === 'NOTES_UPDATED') {
           loadNotes();
+        } else if (payload.type === 'CALENDAR_UPDATED') {
+          loadCalendarEvents();
         } else if (payload.type === 'KUDOS_SENT') {
           loadKudos();
           const kudos = payload.data;
-          const toMe = kudos.toId === activeProfileId;
-          if (toMe) {
+          if (kudos.toId === activeProfileId) {
             playKudosSound();
             fireKudosHeart();
             addNotification(
-              `${kudos.emoji} Kudos from ${kudos.fromId.toUpperCase()}`,
+              `Kudos from ${kudos.fromId.toUpperCase()}`,
               kudos.message || 'Sent you appreciation!',
-              kudos.emoji
+              kudos.emoji || '❤️'
             );
           }
         } else if (payload.type === 'PROFILES_UPDATED') {
@@ -346,9 +361,8 @@ export default function App() {
     return () => {
       sse.close();
     };
-  }, [authToken, currentUser, selectedDate, activeProfileId, loadHabits, loadStats, loadChores, loadGroceries, loadNotes, loadKudos, loadProfiles, addNotification]);
+  }, [authToken, currentUser, selectedDate, activeProfileId, loadHabits, loadStats, loadChores, loadGroceries, loadNotes, loadCalendarEvents, loadKudos, loadProfiles, addNotification]);
 
-  // Profile Selection & Device Memory
   const handleSelectProfile = (id) => {
     setActiveProfileId(id);
     if (id !== 'wall') {
@@ -373,9 +387,8 @@ export default function App() {
     setDarkMode((prev) => !prev);
   };
 
-  // API Actions
+  // Habit Actions
   const handleToggleHabit = async (id, date) => {
-    // Optimistic UI update
     setHabits((prev) =>
       prev.map((h) => {
         if (h.id === id) {
@@ -427,6 +440,7 @@ export default function App() {
     }
   };
 
+  // Chore Actions
   const handleToggleChore = async (id, completedById) => {
     try {
       await authFetch(`/api/chores/${id}/toggle`, {
@@ -463,6 +477,7 @@ export default function App() {
     }
   };
 
+  // Grocery Actions
   const handleToggleGrocery = async (id, boughtById) => {
     try {
       await authFetch(`/api/groceries/${id}/toggle`, {
@@ -509,6 +524,7 @@ export default function App() {
     }
   };
 
+  // Sticky Note Actions
   const handleAddNote = async (data) => {
     try {
       await authFetch('/api/notes', {
@@ -557,31 +573,33 @@ export default function App() {
     }
   };
 
-  // Loading Screen while verifying session
+  // Loading Screen
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-white">
-        <div className="w-16 h-16 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-3xl mb-4 animate-bounce">
-          🏡
+      <div className="min-h-screen bg-white dark:bg-neutral-950 flex flex-col items-center justify-center p-4 text-neutral-900 dark:text-white">
+        <div className="w-12 h-12 rounded-xl bg-black text-white dark:bg-white dark:text-black flex items-center justify-center text-lg font-black mb-3">
+          AH
         </div>
-        <h2 className="text-xl font-bold tracking-tight mb-2">Ambaldhage Family Hub</h2>
-        <div className="flex items-center gap-2 text-sm text-slate-400">
-          <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <h2 className="text-base font-bold tracking-tight uppercase">Ambaldhage Family Hub</h2>
+        <div className="flex items-center gap-2 text-xs text-neutral-500 mt-2">
           <span>Verifying private family session...</span>
         </div>
       </div>
     );
   }
 
-  // Not Logged In: Show Login Modal
+  // Not Logged In
   if (!authToken || !currentUser) {
     return <LoginModal onLoginSuccess={handleLoginSuccess} />;
   }
 
+  const pendingChoresCount = chores.filter((c) => !c.isCompleted).length;
+  const pendingGroceriesCount = groceries.filter((g) => !g.isBought).length;
+
   return (
-    <div className={`min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-20 sm:pb-12 transition-colors duration-200 ${seniorMode ? 'senior-mode' : ''}`}>
+    <div className={`min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 pb-20 sm:pb-12 transition-colors duration-150 ${seniorMode ? 'senior-mode' : ''}`}>
       
-      {/* Top Navigation */}
+      {/* Top Minimalist Navigation */}
       <Navbar
         profiles={profiles}
         activeProfileId={activeProfileId}
@@ -603,7 +621,7 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto px-4 py-4 sm:py-6">
         
-        {/* Daily Team Score Banner */}
+        {/* Daily Team Score Progress Banner */}
         <HouseScoreBanner
           stats={stats}
           selectedDate={selectedDate}
@@ -634,56 +652,80 @@ export default function App() {
           />
         ) : (
           <div>
-            {/* Desktop Tabs */}
-            <div className="hidden sm:flex items-center gap-2 mb-6 border-b border-slate-200 dark:border-slate-800 pb-3">
+            {/* Desktop Clean Minimalist Section Tabs */}
+            <div className="hidden sm:flex items-center gap-1.5 mb-5 border-b border-neutral-200 dark:border-neutral-800 pb-3">
               <button
                 onClick={() => setActiveTab('habits')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
                   activeTab === 'habits'
-                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                    ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs'
+                    : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-black dark:hover:text-white border border-neutral-200 dark:border-neutral-800'
                 }`}
               >
-                <Sparkles className="w-4 h-4" />
+                <Sparkles className="w-3.5 h-3.5" />
                 <span>Daily Habits</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('chores')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
                   activeTab === 'chores'
-                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                    ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs'
+                    : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-black dark:hover:text-white border border-neutral-200 dark:border-neutral-800'
                 }`}
               >
-                <CheckSquare className="w-4 h-4" />
-                <span>Chores & Errands</span>
-                {chores.filter(c => !c.isCompleted).length > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-bold flex items-center justify-center">
-                    {chores.filter(c => !c.isCompleted).length}
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>Chores & Tasks</span>
+                {pendingChoresCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 text-[10px] font-mono flex items-center justify-center">
+                    {pendingChoresCount}
                   </span>
                 )}
               </button>
 
               <button
-                onClick={() => setActiveTab('fridge')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition ${
-                  activeTab === 'fridge'
-                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                onClick={() => setActiveTab('groceries')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+                  activeTab === 'groceries'
+                    ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs'
+                    : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-black dark:hover:text-white border border-neutral-200 dark:border-neutral-800'
                 }`}
               >
-                <ShoppingCart className="w-4 h-4" />
-                <span>The Fridge Board</span>
-                {groceries.filter(g => !g.isBought).length > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[11px] font-bold flex items-center justify-center">
-                    {groceries.filter(g => !g.isBought).length}
+                <ShoppingCart className="w-3.5 h-3.5" />
+                <span>Grocery List (Mom)</span>
+                {pendingGroceriesCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 text-[10px] font-mono flex items-center justify-center">
+                    {pendingGroceriesCount}
                   </span>
                 )}
               </button>
+
+              <button
+                onClick={() => setActiveTab('assistant')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+                  activeTab === 'assistant'
+                    ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs'
+                    : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-black dark:hover:text-white border border-neutral-200 dark:border-neutral-800'
+                }`}
+              >
+                <Bot className="w-3.5 h-3.5" />
+                <span>AI Assistant (Checklists)</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('calendar')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+                  activeTab === 'calendar'
+                    ? 'bg-black text-white dark:bg-white dark:text-black shadow-xs'
+                    : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-black dark:hover:text-white border border-neutral-200 dark:border-neutral-800'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Google Calendar Sync</span>
+              </button>
             </div>
 
-            {/* Active Tab Content */}
+            {/* Active Section Content */}
             {activeTab === 'habits' && (
               <HabitsView
                 habits={habits}
@@ -713,7 +755,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'fridge' && (
+            {activeTab === 'groceries' && (
               <FridgeBoardView
                 groceries={groceries}
                 notes={notes}
@@ -729,25 +771,50 @@ export default function App() {
                 seniorMode={seniorMode}
               />
             )}
+
+            {activeTab === 'assistant' && (
+              <FamilyAssistantView
+                activeProfileId={activeProfileId}
+                profiles={profiles}
+                authFetch={authFetch}
+                onGroceriesAdded={loadGroceries}
+                seniorMode={seniorMode}
+              />
+            )}
+
+            {activeTab === 'calendar' && (
+              <GoogleCalendarView
+                profiles={profiles}
+                activeProfileId={activeProfileId}
+                authFetch={authFetch}
+                calendarEvents={calendarEvents}
+                chores={chores}
+                onEventsUpdated={loadCalendarEvents}
+                onProfileUpdated={loadProfiles}
+                networkInfo={networkInfo}
+                seniorMode={seniorMode}
+              />
+            )}
+
           </div>
         )}
 
       </main>
 
-      {/* Mobile Bottom Navigation Bar (thumb ergonomics) */}
-      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-around shadow-lg">
+      {/* Mobile Bottom Navigation Bar (thumb ergonomics, Clean B&W) */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-neutral-950/95 backdrop-blur-md border-t border-neutral-200 dark:border-neutral-800 px-2 py-1.5 flex items-center justify-around">
         <button
           onClick={() => {
             if (activeProfileId === 'wall') handleSelectProfile('you');
             setActiveTab('habits');
           }}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition ${
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-lg transition ${
             activeProfileId !== 'wall' && activeTab === 'habits'
-              ? 'text-blue-600 dark:text-blue-400 font-bold scale-105'
-              : 'text-slate-500 dark:text-slate-400'
+              ? 'text-black dark:text-white font-bold'
+              : 'text-neutral-400'
           }`}
         >
-          <Sparkles className="w-5 h-5" />
+          <Sparkles className="w-4 h-4" />
           <span className="text-[10px]">Habits</span>
         </button>
 
@@ -756,55 +823,62 @@ export default function App() {
             if (activeProfileId === 'wall') handleSelectProfile('you');
             setActiveTab('chores');
           }}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition ${
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-lg transition ${
             activeProfileId !== 'wall' && activeTab === 'chores'
-              ? 'text-blue-600 dark:text-blue-400 font-bold scale-105'
-              : 'text-slate-500 dark:text-slate-400'
+              ? 'text-black dark:text-white font-bold'
+              : 'text-neutral-400'
           }`}
         >
-          <CheckSquare className="w-5 h-5" />
+          <CheckSquare className="w-4 h-4" />
           <span className="text-[10px]">Chores</span>
         </button>
 
         <button
           onClick={() => {
             if (activeProfileId === 'wall') handleSelectProfile('you');
-            setActiveTab('fridge');
+            setActiveTab('groceries');
           }}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition relative ${
-            activeProfileId !== 'wall' && activeTab === 'fridge'
-              ? 'text-blue-600 dark:text-blue-400 font-bold scale-105'
-              : 'text-slate-500 dark:text-slate-400'
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-lg transition relative ${
+            activeProfileId !== 'wall' && activeTab === 'groceries'
+              ? 'text-black dark:text-white font-bold'
+              : 'text-neutral-400'
           }`}
         >
-          <ShoppingCart className="w-5 h-5" />
-          <span className="text-[10px]">Fridge</span>
-          {groceries.filter(g => !g.isBought).length > 0 && (
-            <span className="absolute top-0 right-2 w-2 h-2 rounded-full bg-amber-500" />
+          <ShoppingCart className="w-4 h-4" />
+          <span className="text-[10px]">Grocery</span>
+          {pendingGroceriesCount > 0 && (
+            <span className="absolute top-0 right-1 w-1.5 h-1.5 rounded-full bg-black dark:bg-white" />
           )}
         </button>
 
         <button
-          onClick={() => handleSelectProfile('wall')}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition ${
-            activeProfileId === 'wall'
-              ? 'text-blue-600 dark:text-blue-400 font-bold scale-105'
-              : 'text-slate-500 dark:text-slate-400'
+          onClick={() => {
+            if (activeProfileId === 'wall') handleSelectProfile('you');
+            setActiveTab('assistant');
+          }}
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-lg transition ${
+            activeProfileId !== 'wall' && activeTab === 'assistant'
+              ? 'text-black dark:text-white font-bold'
+              : 'text-neutral-400'
           }`}
         >
-          <Monitor className="w-5 h-5" />
-          <span className="text-[10px]">Wall</span>
+          <Bot className="w-4 h-4" />
+          <span className="text-[10px]">Assistant</span>
         </button>
 
         <button
           onClick={() => {
-            setKudosTargetId(null);
-            setShowKudosModal(true);
+            if (activeProfileId === 'wall') handleSelectProfile('you');
+            setActiveTab('calendar');
           }}
-          className="flex flex-col items-center gap-1 py-1 px-3 rounded-xl text-rose-500"
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-lg transition ${
+            activeProfileId !== 'wall' && activeTab === 'calendar'
+              ? 'text-black dark:text-white font-bold'
+              : 'text-neutral-400'
+          }`}
         >
-          <Heart className="w-5 h-5 fill-rose-500" />
-          <span className="text-[10px] font-bold">Kudos</span>
+          <Calendar className="w-4 h-4" />
+          <span className="text-[10px]">Calendar</span>
         </button>
       </nav>
 

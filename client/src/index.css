@@ -4,47 +4,47 @@
 
 @layer base {
   :root {
-    --family-primary: #3b82f6;
+    --family-primary: #000000;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900 min-h-screen transition-colors duration-200;
+    @apply bg-white text-neutral-900 antialiased selection:bg-black selection:text-white min-h-screen transition-colors duration-150;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 
   .dark body, body.dark {
-    @apply bg-slate-950 text-slate-100;
+    @apply bg-neutral-950 text-neutral-100 selection:bg-white selection:text-black;
   }
 }
 
-/* Custom scrollbar for sticky notes & lists */
+/* Minimalist B&W scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(120, 120, 120, 0.3);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.7);
+  background: rgba(100, 100, 100, 0.6);
 }
 
-/* High contrast / senior friendly mode utility */
+/* Senior friendly mode utility */
 .senior-mode {
   font-size: 1.15rem;
 }
 .senior-mode .text-sm {
-  font-size: 1rem !important;
+  font-size: 1.05rem !important;
 }
 .senior-mode .text-xs {
-  font-size: 0.875rem !important;
+  font-size: 0.95rem !important;
 }
 .senior-mode button {
-  min-height: 48px;
+  min-height: 50px;
 }
